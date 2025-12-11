@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Coinbase producer metrics
+  - job_name: 'coinbase-producer'
+    static_configs:
+      - targets: ['coinbase-producer:8000']
+
+  # SeaweedFS metrics
+  - job_name: 'seaweedfs-master'
+    static_configs:
+      - targets: ['seaweedfs-master:9324']
+
+  - job_name: 'seaweedfs-volume'
+    static_configs:
+      - targets: ['seaweedfs-volume:9325']
+
+  - job_name: 'seaweedfs-filer'
+    static_configs:
+      - targets: ['seaweedfs-filer:9326']
+
+  # Spark metrics (if enabled)
+  - job_name: 'spark-master'
+    static_configs:
+      - targets: ['spark-master:8090']
+    metrics_path: /metrics/prometheus

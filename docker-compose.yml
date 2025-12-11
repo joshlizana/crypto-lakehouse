@@ -1,0 +1,374 @@
+version: '3.8'
+
+x-spark-common: &spark-common
+  image: bitnami/spark:3.5
+  environment:
+    - SPARK_MODE=${SPARK_MODE:-master}
+  volumes:
+    - ./processing/spark_jobs:/opt/spark-jobs
+    - spark-checkpoints:/opt/checkpoints
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.8.1-python3.11
+  environment:
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW__CORE__FERNET_KEY:-}
+    - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY:-secret}
+    - AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK=true
+    # Spark connection
+    - SPARK_MASTER=spark://spark-master:7077
+    # Kafka connection
+    - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    # S3/SeaweedFS connection
+    - AWS_ACCESS_KEY_ID=admin
+    - AWS_SECRET_ACCESS_KEY=admin
+    - AWS_ENDPOINT_URL=http://seaweedfs-s3:8333
+    # Nessie connection
+    - NESSIE_URI=http://nessie:19120/api/v1
+  volumes:
+    - ./orchestration/dags:/opt/airflow/dags
+    - ./processing/spark_jobs:/opt/spark-jobs
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # ==========================================================================
+  # OBJECT STORAGE - SeaweedFS
+  # ==========================================================================
+  seaweedfs-master:
+    image: chrislusf/seaweedfs:latest
+    container_name: seaweedfs-master
+    command: master -ip=seaweedfs-master -ip.bind=0.0.0.0 -metricsPort=9324
+    ports:
+      - "9333:9333"
+      - "19333:19333"
+      - "9324:9324"
+    volumes:
+      - seaweedfs-master:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9333/cluster/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  seaweedfs-volume:
+    image: chrislusf/seaweedfs:latest
+    container_name: seaweedfs-volume
+    command: volume -mserver=seaweedfs-master:9333 -ip.bind=0.0.0.0 -port=8080 -metricsPort=9325
+    ports:
+      - "8080:8080"
+      - "9325:9325"
+    volumes:
+      - seaweedfs-volume:/data
+    depends_on:
+      seaweedfs-master:
+        condition: service_healthy
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs:latest
+    container_name: seaweedfs-filer
+    command: filer -master=seaweedfs-master:9333 -ip.bind=0.0.0.0 -metricsPort=9326
+    ports:
+      - "8888:8888"
+      - "18888:18888"
+      - "9326:9326"
+    volumes:
+      - seaweedfs-filer:/data
+    depends_on:
+      - seaweedfs-volume
+
+  seaweedfs-s3:
+    image: chrislusf/seaweedfs:latest
+    container_name: seaweedfs-s3
+    command: s3 -filer=seaweedfs-filer:8888 -ip.bind=0.0.0.0 -config=/etc/seaweedfs/s3.json
+    ports:
+      - "8333:8333"
+    volumes:
+      - ./infrastructure/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    depends_on:
+      - seaweedfs-filer
+
+  # ==========================================================================
+  # MESSAGE STREAMING - Kafka
+  # ==========================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # ==========================================================================
+  # ICEBERG CATALOG - Nessie
+  # ==========================================================================
+  nessie:
+    image: ghcr.io/projectnessie/nessie:0.76.0
+    container_name: nessie
+    ports:
+      - "19120:19120"
+    environment:
+      - NESSIE_VERSION_STORE_TYPE=INMEMORY
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19120/api/v1/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # PROCESSING - Spark
+  # ==========================================================================
+  spark-master:
+    <<: *spark-common
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8090
+    ports:
+      - "7077:7077"
+      - "8090:8090"
+    volumes:
+      - ./processing/spark_jobs:/opt/spark-jobs
+      - ./infrastructure/spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - spark-checkpoints:/opt/checkpoints
+
+  spark-worker:
+    <<: *spark-common
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=4G
+      - SPARK_WORKER_CORES=2
+    depends_on:
+      - spark-master
+    volumes:
+      - ./processing/spark_jobs:/opt/spark-jobs
+      - ./infrastructure/spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - spark-checkpoints:/opt/checkpoints
+
+  # ==========================================================================
+  # QUERY ENGINE - Trino
+  # ==========================================================================
+  trino:
+    image: trinodb/trino:436
+    container_name: trino
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+    depends_on:
+      - nessie
+      - seaweedfs-s3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # ORCHESTRATION - Airflow
+  # ==========================================================================
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ==========================================================================
+  # MONITORING - Prometheus & Grafana
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - trino
+
+  # ==========================================================================
+  # INGESTION - Coinbase Producer
+  # ==========================================================================
+  coinbase-producer:
+    build:
+      context: ./ingestion
+      dockerfile: Dockerfile
+    container_name: coinbase-producer
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=coinbase.raw.trades
+      - COINBASE_WS_URL=wss://ws-feed.exchange.coinbase.com
+      - TRADING_PAIRS=BTC-USD,ETH-USD,SOL-USD,DOGE-USD
+      - CHANNELS=matches
+      - PROMETHEUS_PORT=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================================================
+  # INFRASTRUCTURE INIT
+  # ==========================================================================
+  init:
+    build:
+      context: ./infrastructure/init
+      dockerfile: Dockerfile
+    container_name: init
+    environment:
+      - SEAWEEDFS_S3_ENDPOINT=http://seaweedfs-s3:8333
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - NESSIE_URI=http://nessie:19120/api/v1
+    depends_on:
+      seaweedfs-s3:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/init:/init:ro
+    restart: "no"
+
+volumes:
+  seaweedfs-master:
+  seaweedfs-volume:
+  seaweedfs-filer:
+  zookeeper-data:
+  zookeeper-logs:
+  kafka-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+  airflow-logs:
+  spark-checkpoints:
+
+networks:
+  default:
+    name: lakehouse-network
