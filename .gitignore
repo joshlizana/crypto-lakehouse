@@ -56,7 +56,6 @@ processing/dbt/.user.yml
 
 # Great Expectations
 quality/great_expectations/uncommitted/
-quality/great_expectations/great_expectations.yml
 
 # Airflow
 orchestration/logs/
