@@ -1,9 +1,7 @@
-version: '3.8'
-
 x-spark-common: &spark-common
-  image: bitnami/spark:3.5
+  image: apache/spark:3.5.0
   environment:
-    - SPARK_MODE=${SPARK_MODE:-master}
+    - SPARK_NO_DAEMONIZE=true
   volumes:
     - ./processing/spark_jobs:/opt/spark-jobs
     - spark-checkpoints:/opt/checkpoints
@@ -50,7 +48,7 @@ services:
     volumes:
       - seaweedfs-master:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9333/cluster/status"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9333/cluster/status"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -148,7 +146,7 @@ services:
     ports:
       - "19120:19120"
     environment:
-      - NESSIE_VERSION_STORE_TYPE=INMEMORY
+      - nessie.version.store.type=in-memory
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:19120/api/v1/config"]
       interval: 10s
@@ -161,32 +159,33 @@ services:
   spark-master:
     <<: *spark-common
     container_name: spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     environment:
-      - SPARK_MODE=master
+      - SPARK_NO_DAEMONIZE=true
       - SPARK_MASTER_HOST=spark-master
       - SPARK_MASTER_PORT=7077
-      - SPARK_MASTER_WEBUI_PORT=8090
+      - SPARK_MASTER_WEBUI_PORT=8080
     ports:
       - "7077:7077"
-      - "8090:8090"
+      - "8090:8080"
     volumes:
       - ./processing/spark_jobs:/opt/spark-jobs
-      - ./infrastructure/spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - ./infrastructure/spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
       - spark-checkpoints:/opt/checkpoints
 
   spark-worker:
     <<: *spark-common
     container_name: spark-worker
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_NO_DAEMONIZE=true
       - SPARK_WORKER_MEMORY=4G
       - SPARK_WORKER_CORES=2
     depends_on:
       - spark-master
     volumes:
       - ./processing/spark_jobs:/opt/spark-jobs
-      - ./infrastructure/spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - ./infrastructure/spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
       - spark-checkpoints:/opt/checkpoints
 
   # ==========================================================================
