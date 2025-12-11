@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nPhases 6-8: Airflow, Great Expectations, Grafana\n\nPhase 6 - Airflow DAGs:\n- bronze_to_silver.py: Hourly Spark batch job\n- dbt_gold.py: Hourly dbt run with Silver dependency\n- iceberg_maintenance.py: Daily compaction and snapshot expiry\n- data_quality.py: Great Expectations checkpoint runner\n\nPhase 7 - Great Expectations:\n- great_expectations.yml: Config with Spark datasources\n- bronze_trades_suite.json: Expectations for Bronze layer\n- silver_trades_suite.json: Expectations for Silver layer\n\nPhase 8 - Grafana Dashboards:\n- market-dashboard.json: Price stats, time series, volume charts\n- pipeline-health.json: WebSocket status, message rates, latency\n\nAlso added:\n- compaction.py: Spark job for Iceberg maintenance\n\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)"
+    ]
+  }
+}
