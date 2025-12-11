@@ -1,0 +1,76 @@
+version: 2
+
+models:
+  - name: ohlcv_1m
+    description: "1-minute OHLCV candles for each trading pair"
+    columns:
+      - name: product_id
+        description: "Trading pair (e.g., BTC-USD)"
+        tests:
+          - not_null
+      - name: window_start
+        description: "Start of the 1-minute window"
+        tests:
+          - not_null
+      - name: window_end
+        description: "End of the 1-minute window"
+      - name: open
+        description: "Opening price for the window"
+      - name: high
+        description: "Highest price in the window"
+      - name: low
+        description: "Lowest price in the window"
+      - name: close
+        description: "Closing price for the window"
+      - name: volume
+        description: "Total volume traded in the window"
+      - name: trade_count
+        description: "Number of trades in the window"
+      - name: vwap
+        description: "Volume-weighted average price"
+
+  - name: ohlcv_1h
+    description: "1-hour OHLCV candles aggregated from 1-minute candles"
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+      - name: window_start
+        tests:
+          - not_null
+      - name: vwap
+        description: "Volume-weighted average price for the hour"
+
+  - name: daily_metrics
+    description: "Daily trading metrics including volatility and drawdown"
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+      - name: date
+        tests:
+          - not_null
+      - name: daily_return
+        description: "(close - open) / open"
+      - name: volatility
+        description: "Intraday volatility: (high - low) / open"
+      - name: max_drawdown
+        description: "Max intraday drawdown: (high - low) / high"
+
+  - name: price_latest
+    description: "Current price and changes for each trading pair"
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - unique
+      - name: price
+        description: "Latest trade price"
+        tests:
+          - not_null
+      - name: change_1m_pct
+        description: "Price change in last 1 minute (%)"
+      - name: change_1h_pct
+        description: "Price change in last 1 hour (%)"
+      - name: change_24h_pct
+        description: "Price change in last 24 hours (%)"

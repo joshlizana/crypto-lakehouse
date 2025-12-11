@@ -1,0 +1,26 @@
+name: 'lakehouse_crypto'
+version: '1.0.0'
+config-version: 2
+
+profile: 'lakehouse_crypto'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  lakehouse_crypto:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: incremental
+      +schema: gold
+      +incremental_strategy: merge

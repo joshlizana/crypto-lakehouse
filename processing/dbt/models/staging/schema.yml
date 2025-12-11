@@ -1,0 +1,51 @@
+version: 2
+
+sources:
+  - name: silver
+    database: nessie
+    schema: silver
+    tables:
+      - name: trades
+        description: "Cleaned and deduplicated trade events from Coinbase"
+        columns:
+          - name: trade_id
+            description: "Unique identifier for the trade"
+            tests:
+              - not_null
+              - unique
+          - name: product_id
+            description: "Trading pair (e.g., BTC-USD)"
+            tests:
+              - not_null
+          - name: price
+            description: "Trade execution price"
+            tests:
+              - not_null
+          - name: size
+            description: "Trade size/quantity"
+            tests:
+              - not_null
+          - name: side
+            description: "Trade side (buy/sell)"
+            tests:
+              - accepted_values:
+                  values: ['buy', 'sell']
+          - name: trade_time
+            description: "Timestamp when the trade was executed"
+            tests:
+              - not_null
+
+models:
+  - name: stg_trades
+    description: "Staging layer for Silver trades with computed fields"
+    columns:
+      - name: trade_id
+        tests:
+          - not_null
+          - unique
+      - name: trade_value
+        description: "price * size"
+      - name: minute_bucket
+        description: "Trade time truncated to minute"
+      - name: hour_bucket
+        description: "Trade time truncated to hour"

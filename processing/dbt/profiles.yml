@@ -1,0 +1,22 @@
+lakehouse_crypto:
+  target: dev
+  outputs:
+    dev:
+      type: spark
+      method: thrift
+      host: spark-master
+      port: 10001
+      schema: gold
+      # For Iceberg tables via Spark
+      connect_timeout: 60
+      connect_retries: 3
+
+    # Alternative: Connect via Trino
+    trino:
+      type: trino
+      method: none
+      host: trino
+      port: 8080
+      catalog: iceberg
+      schema: gold
+      threads: 4
