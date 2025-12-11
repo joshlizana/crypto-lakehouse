@@ -1,0 +1,93 @@
+# Environment
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Spark
+*.log
+spark-warehouse/
+metastore_db/
+derby.log
+
+# dbt
+processing/dbt/target/
+processing/dbt/dbt_packages/
+processing/dbt/logs/
+processing/dbt/.user.yml
+
+# Great Expectations
+quality/great_expectations/uncommitted/
+quality/great_expectations/great_expectations.yml
+
+# Airflow
+orchestration/logs/
+orchestration/airflow.db
+orchestration/airflow-webserver.pid
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# Data (local development)
+data/
+tmp/
+*.parquet
+*.avro
+*.orc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
